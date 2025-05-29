@@ -1,0 +1,12 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: tdx_tapp
+Description: TDX Trusted Application Platform Libraries
+Version: @PROJECT_VERSION@
+URL: https://github.com/your-org/tdx_tapp
+Requires: openssl >= 1.1.0, protobuf >= 3.0, grpc++ >= 1.0
+Libs: -L${libdir} -lboost_lib -lkey_tool_lib
+Cflags: -I${includedir}/tdx_tapp
