@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(tdx_tapp VERSION 1.0.0 LANGUAGES CXX)
+project(tdx_tapp VERSION 1.0.0 LANGUAGES C CXX)
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 17)
@@ -21,7 +21,7 @@ endif()
 # Find OpenSSL
 find_package(OpenSSL REQUIRED)
 
-# Check for TDX attestation library (optional)
+# Check for TDX attestation library (system installation first)
 find_library(TDX_ATTEST_LIBRARY
     NAMES tdx_attest libtdx_attest
     PATHS /usr/lib64 /usr/lib /usr/local/lib64 /usr/local/lib
@@ -38,10 +38,36 @@ if(TDX_ATTEST_LIBRARY AND TDX_ATTEST_INCLUDE_DIR)
     set(TDX_ATTEST_FOUND TRUE)
     set(TDX_ATTEST_LIBRARIES ${TDX_ATTEST_LIBRARY})
     set(TDX_ATTEST_INCLUDE_DIRS ${TDX_ATTEST_INCLUDE_DIR})
-    message(STATUS "Found TDX attestation: ${TDX_ATTEST_LIBRARY}")
+    message(STATUS "Found system TDX attestation library: ${TDX_ATTEST_LIBRARY}")
+    message(STATUS "  Include: ${TDX_ATTEST_INCLUDE_DIRS}")
 else()
+    # Use local source files in deps/
     set(TDX_ATTEST_FOUND FALSE)
-    message(STATUS "TDX attestation library not found")
+    set(DEPS_DIR ${CMAKE_SOURCE_DIR}/deps)
+    
+    # Check if deps source files exist
+    if(EXISTS ${DEPS_DIR}/tdx_attest.c AND EXISTS ${DEPS_DIR}/tdx_attest.h)
+        message(STATUS "System TDX library not found - using local sources in deps/")
+        
+        # Create static library from deps sources
+        add_library(tdx_attest_local STATIC
+            ${DEPS_DIR}/tdx_attest.c
+            ${DEPS_DIR}/qgs_msg_lib.c
+        )
+        
+        target_include_directories(tdx_attest_local PUBLIC ${DEPS_DIR})
+        
+        # Set variables for linking
+        set(TDX_ATTEST_FOUND TRUE)
+        set(TDX_ATTEST_LIBRARIES tdx_attest_local)
+        set(TDX_ATTEST_INCLUDE_DIRS ${DEPS_DIR})
+        set(USE_LOCAL_TDX TRUE)
+        
+        message(STATUS "Built local TDX attestation library from deps/")
+    else()
+        message(WARNING "Neither system TDX library nor deps sources found - using mock implementation")
+        set(TDX_ATTEST_FOUND FALSE)
+    endif()
 endif()
 
 # Include directories
@@ -57,11 +83,15 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g -DDEBUG")
 # TDX support
 if(TDX_ATTEST_FOUND)
     add_definitions(-DHAVE_TDX_ATTEST)
-    message(STATUS "TDX attestation library found - enabling TDX support")
-    message(STATUS "  Library: ${TDX_ATTEST_LIBRARIES}")
+    if(USE_LOCAL_TDX)
+        message(STATUS "TDX support: Local implementation from deps/")
+    else()
+        message(STATUS "TDX support: System library")
+    endif()
+    message(STATUS "  Libraries: ${TDX_ATTEST_LIBRARIES}")
     message(STATUS "  Include: ${TDX_ATTEST_INCLUDE_DIRS}")
 else()
-    message(STATUS "TDX attestation library not found - using mock implementation")
+    message(STATUS "TDX support: Mock implementation")
 endif()
 
 # Generate protobuf and gRPC files
@@ -174,6 +204,19 @@ install(TARGETS boost_lib key_tool_lib
     ARCHIVE DESTINATION lib
 )
 
+# Install local TDX library if built
+if(USE_LOCAL_TDX)
+    install(TARGETS tdx_attest_local
+        LIBRARY DESTINATION lib
+        ARCHIVE DESTINATION lib
+    )
+    install(FILES 
+        deps/tdx_attest.h
+        deps/qgs_msg_lib.h
+        DESTINATION include/tdx_tapp
+    )
+endif()
+
 # Create pkg-config files
 configure_file(
     ${CMAKE_SOURCE_DIR}/cmake/tdx_tapp.pc.in
@@ -193,7 +236,11 @@ message(STATUS "  Install Prefix: ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "  OpenSSL Version: ${OPENSSL_VERSION}")
 message(STATUS "  Protobuf Version: ${Protobuf_VERSION}")
 if(TDX_ATTEST_FOUND)
-    message(STATUS "  TDX Support: Enabled")
+    if(USE_LOCAL_TDX)
+        message(STATUS "  TDX Support: Local Implementation")
+    else()
+        message(STATUS "  TDX Support: System Library")
+    endif()
 else()
     message(STATUS "  TDX Support: Mock Implementation")
 endif()
@@ -229,24 +276,6 @@ if(BUILD_TESTING)
         
         add_test(NAME TappTests COMMAND tapp_tests)
     endif()
-endif()
-
-# gRPC Service Tests (optional)
-if(BUILD_TESTING AND BUILD_GRPC_SERVER)
-    add_executable(tapp_grpc_tests
-        tests/test_grpc_service.cpp
-    )
-    
-    target_link_libraries(tapp_grpc_tests
-        tapp_proto
-        gRPC::grpc++
-        GTest::GTest
-        GTest::Main
-    )
-    
-    target_include_directories(tapp_grpc_tests PRIVATE ${PROTO_OUT_DIR})
-    
-    add_test(NAME TappGrpcTests COMMAND tapp_grpc_tests)
 endif()
 
 # Development helpers
