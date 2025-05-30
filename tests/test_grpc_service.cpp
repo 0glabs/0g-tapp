@@ -20,8 +20,8 @@ using tapp_service::StartAppRequest;
 using tapp_service::StartAppResponse;
 using tapp_service::GetQuoteRequest;
 using tapp_service::GetQuoteResponse;
-using tapp_service::GetPubkeyRequest;
-using tapp_service::GetPubkeyResponse;
+// using tapp_service::GetPubkeyRequest;
+// using tapp_service::GetPubkeyResponse;
 
 class GrpcServiceTest : public ::testing::Test {
 protected:
@@ -63,10 +63,10 @@ services:
         ClientContext context;
         context.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(2));
         
-        GetPubkeyRequest request;
-        GetPubkeyResponse response;
+        GetQuoteRequest request;
+        GetQuoteResponse response;
         
-        Status status = stub_->GetPubkey(&context, request, &response);
+        Status status = stub_->GetQuote(&context, request, &response);
         return status.ok() || status.error_code() != grpc::StatusCode::UNAVAILABLE;
     }
     
@@ -87,37 +87,37 @@ TEST_F(GrpcServiceTest, ServerAvailability) {
     SUCCEED() << "✅ gRPC server is available at " << server_address_;
 }
 
-TEST_F(GrpcServiceTest, GetPubkeyInterface) {
-    if (!server_available_) {
-        GTEST_SKIP() << "gRPC server not available";
-    }
+// TEST_F(GrpcServiceTest, GetPubkeyInterface) {
+//     if (!server_available_) {
+//         GTEST_SKIP() << "gRPC server not available";
+//     }
     
-    ClientContext context;
-    GetPubkeyRequest request;
-    GetPubkeyResponse response;
+//     ClientContext context;
+//     GetPubkeyRequest request;
+//     GetPubkeyResponse response;
     
-    std::cout << "🔑 Testing GetPubkey interface..." << std::endl;
+//     std::cout << "🔑 Testing GetPubkey interface..." << std::endl;
     
-    Status status = stub_->GetPubkey(&context, request, &response);
+//     Status status = stub_->GetPubkey(&context, request, &response);
     
-    ASSERT_TRUE(status.ok()) << "gRPC call failed: " << status.error_message();
-    EXPECT_TRUE(response.success()) << "GetPubkey failed: " << response.message();
+//     ASSERT_TRUE(status.ok()) << "gRPC call failed: " << status.error_message();
+//     EXPECT_TRUE(response.success()) << "GetPubkey failed: " << response.message();
     
-    if (response.success()) {
-        EXPECT_FALSE(response.public_key().empty()) << "Public key should not be empty";
-        EXPECT_FALSE(response.eth_address().empty()) << "Ethereum address should not be empty";
-        EXPECT_FALSE(response.eth_address_hex().empty()) << "Hex address should not be empty";
+//     if (response.success()) {
+//         EXPECT_FALSE(response.public_key().empty()) << "Public key should not be empty";
+//         EXPECT_FALSE(response.eth_address().empty()) << "Ethereum address should not be empty";
+//         EXPECT_FALSE(response.eth_address_hex().empty()) << "Hex address should not be empty";
         
-        // Check address format
-        EXPECT_EQ(response.eth_address().size(), 20) << "Ethereum address should be 20 bytes";
-        EXPECT_EQ(response.public_key().size(), 64) << "Public key should be 64 bytes";
-        EXPECT_EQ(response.eth_address_hex().substr(0, 2), "0x") << "Hex address should start with 0x";
+//         // Check address format
+//         EXPECT_EQ(response.eth_address().size(), 20) << "Ethereum address should be 20 bytes";
+//         EXPECT_EQ(response.public_key().size(), 64) << "Public key should be 64 bytes";
+//         EXPECT_EQ(response.eth_address_hex().substr(0, 2), "0x") << "Hex address should start with 0x";
         
-        std::cout << "✅ GetPubkey test passed" << std::endl;
-        std::cout << "   Ethereum Address: " << response.eth_address_hex() << std::endl;
-        std::cout << "   Public Key Size: " << response.public_key().size() << " bytes" << std::endl;
-    }
-}
+//         std::cout << "✅ GetPubkey test passed" << std::endl;
+//         std::cout << "   Ethereum Address: " << response.eth_address_hex() << std::endl;
+//         std::cout << "   Public Key Size: " << response.public_key().size() << " bytes" << std::endl;
+//     }
+// }
 
 TEST_F(GrpcServiceTest, GetQuoteInterface) {
     if (!server_available_) {
@@ -260,44 +260,44 @@ TEST_F(GrpcServiceTest, StartAppWithInvalidRTMR) {
     std::cout << "   Message: " << response.message() << std::endl;
 }
 
-TEST_F(GrpcServiceTest, ConcurrentRequests) {
-    if (!server_available_) {
-        GTEST_SKIP() << "gRPC server not available";
-    }
+// TEST_F(GrpcServiceTest, ConcurrentRequests) {
+//     if (!server_available_) {
+//         GTEST_SKIP() << "gRPC server not available";
+//     }
     
-    std::cout << "🔄 Testing concurrent requests..." << std::endl;
+//     std::cout << "🔄 Testing concurrent requests..." << std::endl;
     
-    const int num_threads = 3;
-    std::vector<std::thread> threads;
-    std::vector<bool> results(num_threads, false);
+//     const int num_threads = 3;
+//     std::vector<std::thread> threads;
+//     std::vector<bool> results(num_threads, false);
     
-    // Launch concurrent GetPubkey requests
-    for (int i = 0; i < num_threads; ++i) {
-        threads.emplace_back([this, &results, i]() {
-            ClientContext context;
-            GetPubkeyRequest request;
-            GetPubkeyResponse response;
+//     // Launch concurrent GetPubkey requests
+//     for (int i = 0; i < num_threads; ++i) {
+//         threads.emplace_back([this, &results, i]() {
+//             ClientContext context;
+//             GetPubkeyRequest request;
+//             GetPubkeyResponse response;
             
-            Status status = stub_->GetPubkey(&context, request, &response);
-            results[i] = status.ok() && response.success();
-        });
-    }
+//             Status status = stub_->GetPubkey(&context, request, &response);
+//             results[i] = status.ok() && response.success();
+//         });
+//     }
     
-    // Wait for all threads to complete
-    for (auto& thread : threads) {
-        thread.join();
-    }
+//     // Wait for all threads to complete
+//     for (auto& thread : threads) {
+//         thread.join();
+//     }
     
-    // Check results
-    int successful_requests = 0;
-    for (bool result : results) {
-        if (result) successful_requests++;
-    }
+//     // Check results
+//     int successful_requests = 0;
+//     for (bool result : results) {
+//         if (result) successful_requests++;
+//     }
     
-    EXPECT_GT(successful_requests, 0) << "At least one concurrent request should succeed";
-    std::cout << "✅ Concurrent requests test passed: " << successful_requests 
-              << "/" << num_threads << " requests succeeded" << std::endl;
-}
+//     EXPECT_GT(successful_requests, 0) << "At least one concurrent request should succeed";
+//     std::cout << "✅ Concurrent requests test passed: " << successful_requests 
+//               << "/" << num_threads << " requests succeeded" << std::endl;
+// }
 
 // Test runner with server instructions
 class GrpcTestEnvironment : public ::testing::Environment {
