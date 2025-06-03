@@ -44,19 +44,25 @@ namespace {
         std::cout << "Usage: " << prog_name << " <category> <command> [options]" << std::endl << std::endl;
         
         std::cout << "BOOST COMMANDS:" << std::endl;
-        std::cout << "  boost start_app <compose.yml> <rtmr> Start application from Docker Compose file" << std::endl;
-        std::cout << "  boost measure <compose.yml> <rtmr>   Measure docker compose volumes only" << std::endl;
-        std::cout << "  boost quote [output_file]            Generate TDX quote" << std::endl;
+        std::cout << "  boost start_app <compose.yml> <mode> [rtmr]  Start application from Docker Compose file" << std::endl;
+        std::cout << "  boost measure <compose.yml> <rtmr>           Measure docker compose volumes only" << std::endl;
+        std::cout << "  boost quote [output_file]                    Generate TDX quote" << std::endl;
         std::cout << std::endl;
         
         std::cout << "KEY COMMANDS:" << std::endl;
-        std::cout << "  key pubkey                           Display public key derived from TDX report" << std::endl;
-        std::cout << "  key address                          Display Ethereum address derived from TDX report" << std::endl;
-        std::cout << "  key all                              Display both public key and address" << std::endl;
+        std::cout << "  key pubkey                                   Display public key derived from TDX report" << std::endl;
+        std::cout << "  key address                                  Display Ethereum address derived from TDX report" << std::endl;
+        std::cout << "  key all                                      Display both public key and address" << std::endl;
+        std::cout << std::endl;
+        
+        std::cout << "OPTIONS:" << std::endl;
+        std::cout << "  mode: report|rtmr                            Attestation mode for start_app command" << std::endl;
+        std::cout << "  rtmr: 0-3 (required only for rtmr mode)     RTMR index" << std::endl;
         std::cout << std::endl;
         
         std::cout << "EXAMPLES:" << std::endl;
-        std::cout << "  " << prog_name << " boost start_app docker-compose.yml 3" << std::endl;
+        std::cout << "  " << prog_name << " boost start_app docker-compose.yml report" << std::endl;
+        std::cout << "  " << prog_name << " boost start_app docker-compose.yml rtmr 3" << std::endl;
         std::cout << "  " << prog_name << " boost measure docker-compose.yml 3" << std::endl;
         std::cout << "  " << prog_name << " boost quote my_quote.dat" << std::endl;
         std::cout << "  " << prog_name << " key all" << std::endl;
@@ -83,12 +89,33 @@ namespace {
             
             if (command == "start_app") {
                 if (args.size() < 5) {
-                    std::cerr << "Error: 'boost start_app' requires <compose.yml> and <rtmr> arguments" << std::endl;
+                    std::cerr << "Error: 'boost start_app' requires <compose.yml> and <mode> arguments" << std::endl;
                     return 1;
                 }
 
                 const std::string& compose_path = args[3];
-                int rtmr_index = std::stoi(args[4]);
+                const std::string& mode_str = args[4];
+                
+                boost_lib::AttestationMode mode;
+                int rtmr_index = 3; // Default value
+                
+                if (mode_str == "report") {
+                    mode = boost_lib::AttestationMode::REPORT_DATA;
+                    // RTMR index is not used for report mode, but we can accept it if provided
+                    if (args.size() > 5) {
+                        rtmr_index = std::stoi(args[5]);
+                    }
+                } else if (mode_str == "rtmr") {
+                    mode = boost_lib::AttestationMode::RTMR;
+                    if (args.size() < 6) {
+                        std::cerr << "Error: RTMR mode requires <rtmr> index argument" << std::endl;
+                        return 1;
+                    }
+                    rtmr_index = std::stoi(args[5]);
+                } else {
+                    std::cerr << "Error: Invalid mode '" << mode_str << "'. Must be 'report' or 'rtmr'" << std::endl;
+                    return 1;
+                }
 
                 if (rtmr_index < 0 || rtmr_index > 3) {
                     std::cerr << "Error: RTMR index must be 0-3" << std::endl;
@@ -103,9 +130,12 @@ namespace {
                 }
 
                 std::cout << "🚀 Starting application from: " << compose_path << std::endl;
-                std::cout << "📊 Using RTMR index: " << rtmr_index << std::endl;
+                std::cout << "🔧 Attestation mode: " << mode_str << std::endl;
+                if (mode_str == "rtmr" || args.size() > 5) {
+                    std::cout << "📊 Using RTMR index: " << rtmr_index << std::endl;
+                }
 
-                auto result = boost_lib.start_app(compose_content, rtmr_index);
+                auto result = boost_lib.start_app(compose_content, mode, rtmr_index);
                 if (result.status != boost_lib::ErrorCode::SUCCESS) {
                     std::cerr << "❌ Failed to start application: " << result.message << std::endl;
                     return 1;
