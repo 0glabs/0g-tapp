@@ -14,10 +14,16 @@ service TappService {
     rpc GetPubkey(GetPubkeyRequest) returns (GetPubkeyResponse);
 }
 
+enum AttestationMode {
+    REPORT_DATA = 0;
+    RTMR = 1;
+}
+
 // Start App Messages
 message StartAppRequest {
     string compose_content = 1;
-    int32 rtmr_index = 2;  // Optional, defaults to 3
+    AttestationMode mode = 2;
+    int32 rtmr_index = 3;  // Optional, defaults to 3
 }
 
 message StartAppResponse {

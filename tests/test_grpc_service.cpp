@@ -22,6 +22,7 @@ using tapp_service::GetQuoteRequest;
 using tapp_service::GetQuoteResponse;
 // using tapp_service::GetPubkeyRequest;
 // using tapp_service::GetPubkeyResponse;
+using tapp_service::AttestationMode;
 
 class GrpcServiceTest : public ::testing::Test {
 protected:
@@ -182,7 +183,7 @@ TEST_F(GrpcServiceTest, StartAppInterface) {
     
     // Set request data
     request.set_compose_content(sample_compose_);
-    request.set_rtmr_index(3);
+    request.set_mode(AttestationMode::REPORT_DATA);
     
     Status status = stub_->StartApp(&context, request, &response);
     

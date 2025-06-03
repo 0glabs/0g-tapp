@@ -28,7 +28,7 @@ using tapp_service::GetQuoteRequest;
 using tapp_service::GetQuoteResponse;
 using tapp_service::GetPubkeyRequest;
 using tapp_service::GetPubkeyResponse;
-
+using tapp_service::AttestationMode;
 class TappServiceImpl final : public TappService::Service {
 private:
     std::unique_ptr<boost_lib::BoostLib> boost_lib_;
@@ -66,8 +66,13 @@ public:
             std::cout << "ℹ️  Using default RTMR index: " << rtmr_index << std::endl;
         }
         
+        boost_lib::AttestationMode mode = boost_lib::AttestationMode::REPORT_DATA;
+        if (request->mode() == AttestationMode::RTMR) {
+            mode = boost_lib::AttestationMode::RTMR;
+        }
+        
         try {
-            auto result = boost_lib_->start_app(request->compose_content(), rtmr_index);
+            auto result = boost_lib_->start_app(request->compose_content(), mode, rtmr_index);
             
             if (result.status == boost_lib::ErrorCode::SUCCESS) {
                 response->set_success(true);
