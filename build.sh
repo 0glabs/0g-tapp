@@ -162,13 +162,8 @@ configure_build() {
         -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE"
         -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX"
         -DBUILD_TESTING="$ENABLE_TESTING"
-        -DBUILD_GRPC_SERVER="$ENABLE_GRPC_SERVER"
     )
     
-    # Add TDX support if available
-    if check_tdx_support; then
-        cmake_args+=(-DHAVE_TDX_ATTEST=ON)
-    fi
     
     print_info "Running cmake with arguments: ${cmake_args[*]}"
     cmake "${cmake_args[@]}" ..
@@ -296,7 +291,6 @@ print_summary() {
     echo -e "${CYAN}Build Type:${NC} $CMAKE_BUILD_TYPE"
     echo -e "${CYAN}Install Prefix:${NC} $INSTALL_PREFIX"
     echo -e "${CYAN}Testing:${NC} $ENABLE_TESTING"
-    echo -e "${CYAN}TDX Support:${NC} $(check_tdx_support && echo "Enabled" || echo "Mock")"
     
     if [[ -d "$BUILD_DIR" ]]; then
         echo -e "${CYAN}Build Directory:${NC} $BUILD_DIR"

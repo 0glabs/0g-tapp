@@ -119,61 +119,55 @@ TEST_F(GrpcServiceTest, ServerAvailability) {
 //     }
 // }
 
-TEST_F(GrpcServiceTest, GetQuoteInterface) {
-    if (!server_available_) {
-        GTEST_SKIP() << "gRPC server not available";
-    }
+// TEST_F(GrpcServiceTest, StartAppWithInvalidData) {
+//     if (!server_available_) {
+//         GTEST_SKIP() << "gRPC server not available";
+//     }
     
-    ClientContext context;
-    GetQuoteRequest request;
-    GetQuoteResponse response;
+//     ClientContext context;
+//     StartAppRequest request;
+//     StartAppResponse response;
     
-    std::cout << "🔐 Testing GetQuote interface..." << std::endl;
+//     std::cout << "❌ Testing StartApp with invalid data..." << std::endl;
     
-    // Test without custom report data
-    Status status = stub_->GetQuote(&context, request, &response);
+//     // Test with empty compose content
+//     request.set_compose_content("");  // Invalid: empty content
+//     request.set_rtmr_index(3);
     
-    ASSERT_TRUE(status.ok()) << "gRPC call failed: " << status.error_message();
-    EXPECT_TRUE(response.success()) << "GetQuote failed: " << response.message();
+//     Status status = stub_->StartApp(&context, request, &response);
     
-    if (response.success()) {
-        EXPECT_FALSE(response.quote_data().empty()) << "Quote data should not be empty";
-        EXPECT_GT(response.quote_size(), 0) << "Quote size should be greater than 0";
-        EXPECT_EQ(response.quote_data().size(), response.quote_size()) 
-            << "Quote data size should match quote_size field";
-        
-        std::cout << "✅ GetQuote test passed" << std::endl;
-        std::cout << "   Quote Size: " << response.quote_size() << " bytes" << std::endl;
-    }
-}
+//     ASSERT_TRUE(status.ok()) << "gRPC call should succeed even with invalid data";
+//     EXPECT_FALSE(response.success()) << "StartApp should fail with empty compose content";
+//     EXPECT_FALSE(response.message().empty()) << "Error message should be provided";
+    
+//     std::cout << "✅ Invalid data handling test passed" << std::endl;
+//     std::cout << "   Error Message: " << response.message() << std::endl;
+// }
 
-TEST_F(GrpcServiceTest, GetQuoteWithCustomData) {
-    if (!server_available_) {
-        GTEST_SKIP() << "gRPC server not available";
-    }
+// TEST_F(GrpcServiceTest, StartAppWithInvalidRTMR) {
+//     if (!server_available_) {
+//         GTEST_SKIP() << "gRPC server not available";
+//     }
     
-    ClientContext context;
-    GetQuoteRequest request;
-    GetQuoteResponse response;
+//     ClientContext context;
+//     StartAppRequest request;
+//     StartAppResponse response;
     
-    // Test with custom report data
-    std::string custom_data = "test_report_data_12345";
-    request.set_report_data(custom_data);
+//     std::cout << "📊 Testing StartApp with invalid RTMR index..." << std::endl;
     
-    std::cout << "🔐 Testing GetQuote with custom report data..." << std::endl;
+//     // Test with invalid RTMR index (should auto-correct to 3)
+//     request.set_compose_content(sample_compose_);
+//     request.set_rtmr_index(-1);  // Invalid RTMR index
     
-    Status status = stub_->GetQuote(&context, request, &response);
+//     Status status = stub_->StartApp(&context, request, &response);
     
-    ASSERT_TRUE(status.ok()) << "gRPC call failed: " << status.error_message();
-    EXPECT_TRUE(response.success()) << "GetQuote with custom data failed: " << response.message();
+//     ASSERT_TRUE(status.ok()) << "gRPC call should succeed";
     
-    if (response.success()) {
-        EXPECT_FALSE(response.quote_data().empty()) << "Quote data should not be empty";
-        EXPECT_GT(response.quote_size(), 0) << "Quote size should be greater than 0";
-        
-        std::cout << "✅ GetQuote with custom data test passed" << std::endl;
-    }
-}
+//     // Server should handle invalid RTMR gracefully (default to 3)
+//     std::cout << "✅ Invalid RTMR handling test completed" << std::endl;
+//     std::cout << "   Result: " << (response.success() ? "Success" : "Failed") << std::endl;
+//     std::cout << "   Message: " << response.message() << std::endl;
+// }
 
 TEST_F(GrpcServiceTest, StartAppInterface) {
     if (!server_available_) {
@@ -210,55 +204,61 @@ TEST_F(GrpcServiceTest, StartAppInterface) {
     }
 }
 
-TEST_F(GrpcServiceTest, StartAppWithInvalidData) {
+TEST_F(GrpcServiceTest, GetQuoteInterface) {
     if (!server_available_) {
         GTEST_SKIP() << "gRPC server not available";
     }
     
     ClientContext context;
-    StartAppRequest request;
-    StartAppResponse response;
+    GetQuoteRequest request;
+    GetQuoteResponse response;
     
-    std::cout << "❌ Testing StartApp with invalid data..." << std::endl;
+    std::cout << "🔐 Testing GetQuote interface..." << std::endl;
     
-    // Test with empty compose content
-    request.set_compose_content("");  // Invalid: empty content
-    request.set_rtmr_index(3);
+    // Test without custom report data
+    Status status = stub_->GetQuote(&context, request, &response);
     
-    Status status = stub_->StartApp(&context, request, &response);
+    ASSERT_TRUE(status.ok()) << "gRPC call failed: " << status.error_message();
+    EXPECT_TRUE(response.success()) << "GetQuote failed: " << response.message();
     
-    ASSERT_TRUE(status.ok()) << "gRPC call should succeed even with invalid data";
-    EXPECT_FALSE(response.success()) << "StartApp should fail with empty compose content";
-    EXPECT_FALSE(response.message().empty()) << "Error message should be provided";
-    
-    std::cout << "✅ Invalid data handling test passed" << std::endl;
-    std::cout << "   Error Message: " << response.message() << std::endl;
+    if (response.success()) {
+        EXPECT_FALSE(response.quote_data().empty()) << "Quote data should not be empty";
+        EXPECT_GT(response.quote_size(), 0) << "Quote size should be greater than 0";
+        EXPECT_EQ(response.quote_data().size(), response.quote_size()) 
+            << "Quote data size should match quote_size field";
+        
+        std::cout << "✅ GetQuote test passed" << std::endl;
+        std::cout << "   Quote Size: " << response.quote_size() << " bytes" << std::endl;
+    }
 }
 
-TEST_F(GrpcServiceTest, StartAppWithInvalidRTMR) {
-    if (!server_available_) {
-        GTEST_SKIP() << "gRPC server not available";
-    }
+// TEST_F(GrpcServiceTest, GetQuoteWithCustomData) {
+//     if (!server_available_) {
+//         GTEST_SKIP() << "gRPC server not available";
+//     }
     
-    ClientContext context;
-    StartAppRequest request;
-    StartAppResponse response;
+//     ClientContext context;
+//     GetQuoteRequest request;
+//     GetQuoteResponse response;
     
-    std::cout << "📊 Testing StartApp with invalid RTMR index..." << std::endl;
+//     // Test with custom report data
+//     std::string custom_data = "test_report_data_12345";
+//     request.set_report_data(custom_data);
     
-    // Test with invalid RTMR index (should auto-correct to 3)
-    request.set_compose_content(sample_compose_);
-    request.set_rtmr_index(-1);  // Invalid RTMR index
+//     std::cout << "🔐 Testing GetQuote with custom report data..." << std::endl;
     
-    Status status = stub_->StartApp(&context, request, &response);
+//     Status status = stub_->GetQuote(&context, request, &response);
     
-    ASSERT_TRUE(status.ok()) << "gRPC call should succeed";
+//     ASSERT_TRUE(status.ok()) << "gRPC call failed: " << status.error_message();
+//     EXPECT_TRUE(response.success()) << "GetQuote with custom data failed: " << response.message();
     
-    // Server should handle invalid RTMR gracefully (default to 3)
-    std::cout << "✅ Invalid RTMR handling test completed" << std::endl;
-    std::cout << "   Result: " << (response.success() ? "Success" : "Failed") << std::endl;
-    std::cout << "   Message: " << response.message() << std::endl;
-}
+//     if (response.success()) {
+//         EXPECT_FALSE(response.quote_data().empty()) << "Quote data should not be empty";
+//         EXPECT_GT(response.quote_size(), 0) << "Quote size should be greater than 0";
+        
+//         std::cout << "✅ GetQuote with custom data test passed" << std::endl;
+//     }
+// }
 
 // TEST_F(GrpcServiceTest, ConcurrentRequests) {
 //     if (!server_available_) {

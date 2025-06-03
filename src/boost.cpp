@@ -126,19 +126,32 @@ namespace {
 
 namespace boost_lib {
 
-BoostLib::BoostLib() : initialized_(false) {
+BoostLib::BoostLib() 
+    : initialized_(false), measurement_ready_(false), 
+      current_mode_(AttestationMode::REPORT_DATA), used_rtmr_index_(-1) {
     // Initialize OpenSSL if needed
     // OpenSSL_add_all_digests(); // Not needed in OpenSSL 1.1.0+
     initialized_ = true;
 }
 
 BoostLib::~BoostLib() {
+    // Clear sensitive data from memory
+    clear_measurement();
     // Cleanup OpenSSL if needed
     // EVP_cleanup(); // Not needed in OpenSSL 1.1.0+
 }
 
+// Original interface for backward compatibility
 StartAppResult BoostLib::start_app(const std::string& compose_content, int rtmr_index) {
+    // Default to RTMR mode to maintain backward compatibility
+    return start_app(compose_content, AttestationMode::RTMR, rtmr_index);
+}
+
+// New interface with attestation mode selection
+StartAppResult BoostLib::start_app(const std::string& compose_content, 
+                                  AttestationMode mode, int rtmr_index) {
     StartAppResult result;
+    result.mode = mode;
 
     if (compose_content.empty()) {
         result.status = ErrorCode::INVALID_PARAM;
@@ -146,8 +159,8 @@ StartAppResult BoostLib::start_app(const std::string& compose_content, int rtmr_
         return result;
     }
 
-    // Validate RTMR index
-    if (rtmr_index < 0 || rtmr_index > 3) {
+    // Validate RTMR index only for RTMR mode
+    if (mode == AttestationMode::RTMR && (rtmr_index < 0 || rtmr_index > 3)) {
         result.status = ErrorCode::INVALID_PARAM;
         result.message = "Invalid RTMR index: " + std::to_string(rtmr_index);
         return result;
@@ -166,9 +179,14 @@ StartAppResult BoostLib::start_app(const std::string& compose_content, int rtmr_
     file << compose_content;
     file.close();
     
+    std::cout << "=== Starting Application ===\n";
+    std::cout << "Attestation Mode: " << (mode == AttestationMode::RTMR ? "RTMR" : "REPORT_DATA") << std::endl;
+    if (mode == AttestationMode::RTMR) {
+        std::cout << "RTMR Index: " << rtmr_index << std::endl;
+    }
     std::cout << "Saved compose content to: " << temp_file << std::endl;
 
-    std::cout << "Computing combined hash (compose + volumes)..." << std::endl;
+    std::cout << "\nComputing combined hash (compose + volumes)..." << std::endl;
     
     // 1. Calculate hash of compose content itself
     SHA256_CTX compose_sha256;
@@ -201,83 +219,249 @@ StartAppResult BoostLib::start_app(const std::string& compose_content, int rtmr_
 
     print_hex("Combined measurement hash", result.volumes_hash);
 
-    // 4. Extend RTMR with combined hash
-    tdx_rtmr_event_t rtmr_event = {0};
-    rtmr_event.version = 1;
-    rtmr_event.rtmr_index = rtmr_index;
-    rtmr_event.event_data_size = 0;
+    // Generate app identifier
+    result.app_identifier = "app-" + std::to_string(std::time(nullptr));
 
-    std::memset(rtmr_event.extend_data, 0, TDX_EXTEND_RTMR_DATA_LEN);
-    size_t copy_len = std::min(result.volumes_hash.size(), static_cast<size_t>(TDX_EXTEND_RTMR_DATA_LEN));
-    std::memcpy(rtmr_event.extend_data, result.volumes_hash.data(), copy_len);
+    // Process based on attestation mode
+    if (mode == AttestationMode::RTMR) {
+        std::cout << "\n--- RTMR Mode: Extending RTMR ---" << std::endl;
+        
+        // 4. Extend RTMR with combined hash
+        tdx_rtmr_event_t rtmr_event = {0};
+        rtmr_event.version = 1;
+        rtmr_event.rtmr_index = rtmr_index;
+        rtmr_event.event_data_size = 0;
 
-    if (tdx_att_extend(&rtmr_event) != TDX_ATTEST_SUCCESS) {
-        result.status = ErrorCode::TDX_EXTEND;
-        result.message = "Failed to extend RTMR" + std::to_string(rtmr_index);
-        return result;
+        std::memset(rtmr_event.extend_data, 0, TDX_EXTEND_RTMR_DATA_LEN);
+        size_t copy_len = std::min(result.volumes_hash.size(), static_cast<size_t>(TDX_EXTEND_RTMR_DATA_LEN));
+        std::memcpy(rtmr_event.extend_data, result.volumes_hash.data(), copy_len);
+
+        if (tdx_att_extend(&rtmr_event) != TDX_ATTEST_SUCCESS) {
+            result.status = ErrorCode::TDX_EXTEND;
+            result.message = "Failed to extend RTMR" + std::to_string(rtmr_index);
+            return result;
+        }
+
+        std::cout << "✅ Successfully extended RTMR" << rtmr_index << " with combined hash" << std::endl;
+        
+        // Store measurement data for potential future use
+        store_measurement_data(result.volumes_hash, mode, result.app_identifier, rtmr_index);
+        
+    } else {
+        std::cout << "\n--- Report Data Mode: Storing App Root ---" << std::endl;
+        
+        // Store measurement data as app_root in memory
+        store_measurement_data(result.volumes_hash, mode, result.app_identifier);
+        
+        std::cout << "✅ App root measurement stored in secure memory" << std::endl;
     }
 
-    std::cout << "✅ Successfully extended RTMR" << rtmr_index << " with combined hash" << std::endl;
-
     // Start docker compose services
-    std::cout << "Starting Docker Compose services..." << std::endl;
+    std::cout << "\nStarting Docker Compose services..." << std::endl;
     if (!start_docker_compose_from_file(temp_file)) {
-        result.message = "Warning: Failed to start Docker Compose services";
+        result.status = ErrorCode::TDX_EXTEND;
+        result.message = "Failed to start Docker Compose services";
         std::filesystem::remove(temp_file);
-        // Continue, measurement was successful
+        return result;
     } else {
-        result.message = "Successfully started application";
+        result.message = "Successfully started application and prepared attestation";
     }
 
     // Cleanup temp file
     std::filesystem::remove(temp_file);
 
     result.status = ErrorCode::SUCCESS;
+    std::cout << "\n✅ Application startup completed successfully!" << std::endl;
     return result;
 }
 
-QuoteResult BoostLib::generate_quote(const std::vector<uint8_t>& report_data) {
+QuoteResult BoostLib::generate_quote(const std::vector<uint8_t>& additional_report_data) {
     QuoteResult result;
 
-    tdx_report_data_t tdx_report_data = {{0}};
-    uint8_t *p_quote_buf = nullptr;
-    uint32_t quote_size = 0;
-    tdx_uuid_t selected_att_key_id = {0};
+    // Check if we have valid measurement data
+    // if (!has_valid_measurement()) {
+    //     result.status = ErrorCode::INVALID_PARAM;
+    //     result.message = "No valid measurement data available. Please start an application first.";
+    //     return result;
+    // }
 
-    if (!report_data.empty()) {
-        if (report_data.size() > TDX_REPORT_DATA_SIZE) {
-            result.status = ErrorCode::INVALID_PARAM;
-            result.message = "Report data size (" + std::to_string(report_data.size()) + 
-                           ") exceeds maximum (" + std::to_string(TDX_REPORT_DATA_SIZE) + ")";
-            return result;
-        }
-        std::memcpy(tdx_report_data.d, report_data.data(), report_data.size());
-    } else {
-        std::srand(std::time(nullptr));
-        for (int i = 0; i < TDX_REPORT_DATA_SIZE; i++) {
-            tdx_report_data.d[i] = std::rand();
-        }
-        std::cout << "Generated random report data" << std::endl;
-    }
-
-    if (tdx_att_get_quote(&tdx_report_data, nullptr, 0, &selected_att_key_id,
-                          &p_quote_buf, &quote_size, 0) != TDX_ATTEST_SUCCESS) {
-        result.status = ErrorCode::TDX_EXTEND;
-        result.message = "Failed to get TDX quote";
+    // Validate additional report data size (max 32 bytes to leave room for app_root)
+    if (additional_report_data.size() > 32) {
+        result.status = ErrorCode::INVALID_PARAM;
+        result.message = "Additional report data size (" + std::to_string(additional_report_data.size()) + 
+                        ") exceeds maximum (32 bytes)";
         return result;
     }
 
-    std::cout << "Successfully generated TDX quote (" << quote_size << " bytes)" << std::endl;
+    std::cout << "\n=== Generating TDX Quote ===" << std::endl;
+    
+    AttestationMode mode;
+    std::string app_id;
+    {
+        std::lock_guard<std::mutex> lock(measurement_mutex_);
+        mode = current_mode_;
+        app_id = app_identifier_;
+    }
+    
+    std::cout << "Attestation Mode: " << (mode == AttestationMode::RTMR ? "RTMR" : "REPORT_DATA") << std::endl;
+    std::cout << "App Identifier: " << app_id << std::endl;
 
-    result.quote_data.assign(p_quote_buf, p_quote_buf + quote_size);
+    if (mode == AttestationMode::RTMR) {
+        // In RTMR mode, measurement is already in RTMR, use additional data as report data
+        std::cout << "Using RTMR measurement + additional data as report data" << std::endl;
+        
+        tdx_report_data_t tdx_report_data = {{0}};
+        
+        if (!additional_report_data.empty()) {
+            std::memcpy(tdx_report_data.d, additional_report_data.data(), 
+                       std::min(additional_report_data.size(), static_cast<size_t>(TDX_REPORT_DATA_SIZE)));
+            print_hex("Additional report data", additional_report_data);
+        } else {
+            // Generate random nonce if no additional data provided
+            std::srand(std::time(nullptr));
+            for (int i = 0; i < TDX_REPORT_DATA_SIZE; i++) {
+                tdx_report_data.d[i] = std::rand() & 0xFF;
+            }
+            std::cout << "Generated random nonce for report data" << std::endl;
+        }
+
+        // Generate quote (RTMR values will be included automatically by TDX module)
+        uint8_t *p_quote_buf = nullptr;
+        uint32_t quote_size = 0;
+        
+        if (tdx_att_get_quote(&tdx_report_data, nullptr, 0, nullptr,
+                              &p_quote_buf, &quote_size, 0) != TDX_ATTEST_SUCCESS) {
+            result.status = ErrorCode::TDX_EXTEND;
+            result.message = "Failed to get TDX quote";
+            return result;
+        }
+
+        result.quote_data.assign(p_quote_buf, p_quote_buf + quote_size);
+        tdx_att_free_quote(p_quote_buf);
+        
+    } else {
+        // In Report Data mode, combine app_root with additional data
+        std::cout << "Combining app root measurement with additional data" << std::endl;
+        
+        auto combined_report_data = prepare_report_data(additional_report_data);
+        print_hex("Combined report data (app_root + additional)", combined_report_data);
+
+        tdx_report_data_t tdx_report_data = {{0}};
+        std::memcpy(tdx_report_data.d, combined_report_data.data(), 
+                   std::min(combined_report_data.size(), static_cast<size_t>(TDX_REPORT_DATA_SIZE)));
+
+        // Generate quote with combined report data
+        uint8_t *p_quote_buf = nullptr;
+        uint32_t quote_size = 0;
+        
+        if (tdx_att_get_quote(&tdx_report_data, nullptr, 0, nullptr,
+                              &p_quote_buf, &quote_size, 0) != TDX_ATTEST_SUCCESS) {
+            result.status = ErrorCode::TDX_EXTEND;
+            result.message = "Failed to get TDX quote";
+            return result;
+        }
+
+        result.quote_data.assign(p_quote_buf, p_quote_buf + quote_size);
+        tdx_att_free_quote(p_quote_buf);
+    }
+
+    std::cout << "✅ TDX quote generated successfully (" << result.quote_data.size() << " bytes)" << std::endl;
+    
     result.status = ErrorCode::SUCCESS;
     result.message = "TDX quote generated successfully";
-
-    tdx_att_free_quote(p_quote_buf);
-
     return result;
 }
 
+bool BoostLib::has_valid_measurement() const {
+    std::lock_guard<std::mutex> lock(measurement_mutex_);
+    return current_mode_ == AttestationMode::REPORT_DATA && measurement_ready_ && !app_root_measurement_.empty();
+}
+
+std::chrono::system_clock::time_point BoostLib::get_measurement_timestamp() const {
+    std::lock_guard<std::mutex> lock(measurement_mutex_);
+    return measurement_timestamp_;
+}
+
+void BoostLib::clear_measurement() {
+    std::lock_guard<std::mutex> lock(measurement_mutex_);
+    
+    // Securely clear measurement data
+    if (!app_root_measurement_.empty()) {
+        std::fill(app_root_measurement_.begin(), app_root_measurement_.end(), 0);
+        app_root_measurement_.clear();
+    }
+    
+    measurement_ready_ = false;
+    app_identifier_.clear();
+    current_mode_ = AttestationMode::REPORT_DATA;
+    used_rtmr_index_ = -1;
+    
+    std::cout << "🧹 Measurement data cleared from secure memory" << std::endl;
+}
+
+AttestationMode BoostLib::get_attestation_mode() const {
+    std::lock_guard<std::mutex> lock(measurement_mutex_);
+    return current_mode_;
+}
+
+std::string BoostLib::get_app_identifier() const {
+    std::lock_guard<std::mutex> lock(measurement_mutex_);
+    return app_identifier_;
+}
+
+void BoostLib::store_measurement_data(const std::vector<uint8_t>& measurement_data,
+                                     AttestationMode mode,
+                                     const std::string& app_id,
+                                     int rtmr_index) {
+    std::lock_guard<std::mutex> lock(measurement_mutex_);
+    
+    // Clear previous data
+    if (!app_root_measurement_.empty()) {
+        std::fill(app_root_measurement_.begin(), app_root_measurement_.end(), 0);
+    }
+    
+    // Store new measurement data (first 32 bytes for app_root)
+    app_root_measurement_.resize(32, 0);
+    size_t copy_len = std::min(measurement_data.size(), static_cast<size_t>(32));
+    std::memcpy(app_root_measurement_.data(), measurement_data.data(), copy_len);
+    
+    measurement_ready_ = true;
+    current_mode_ = mode;
+    app_identifier_ = app_id;
+    used_rtmr_index_ = rtmr_index;
+    measurement_timestamp_ = std::chrono::system_clock::now();
+    
+    std::cout << "💾 Stored measurement data securely in memory:" << std::endl;
+    std::cout << "   Mode: " << (mode == AttestationMode::RTMR ? "RTMR" : "REPORT_DATA") << std::endl;
+    std::cout << "   App ID: " << app_id << std::endl;
+    if (rtmr_index >= 0) {
+        std::cout << "   RTMR Index: " << rtmr_index << std::endl;
+    }
+}
+
+std::vector<uint8_t> BoostLib::prepare_report_data(const std::vector<uint8_t>& additional_data) {
+    std::vector<uint8_t> report_data(TDX_REPORT_DATA_SIZE, 0);
+    
+    std::lock_guard<std::mutex> lock(measurement_mutex_);
+    
+    if (!measurement_ready_ || app_root_measurement_.empty()) {
+        return report_data;  // Return zeros if no measurement available
+    }
+    
+    // First 32 bytes: app_root measurement
+    size_t app_root_len = std::min(app_root_measurement_.size(), static_cast<size_t>(32));
+    std::memcpy(report_data.data(), app_root_measurement_.data(), app_root_len);
+    
+    // Next 32 bytes: additional data from caller
+    if (!additional_data.empty()) {
+        size_t additional_len = std::min(additional_data.size(), static_cast<size_t>(32));
+        std::memcpy(report_data.data() + 32, additional_data.data(), additional_len);
+    }
+    
+    return report_data;
+}
+
+// Keep all the existing helper methods unchanged...
 std::vector<uint8_t> BoostLib::calculate_compose_volumes_hash(const std::string& compose_content) {
     std::vector<std::string> volume_paths = extract_volume_paths(compose_content);
     std::vector<uint8_t> hash(HASH_LEN, 0);

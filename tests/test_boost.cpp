@@ -79,14 +79,6 @@ TEST_F(BoostLibTest, CalculateComposeVolumesHash) {
     EXPECT_EQ(hash.size(), boost_lib::HASH_LEN);
 }
 
-TEST_F(BoostLibTest, GenerateQuote) {
-    boost_lib::BoostLib boost;
-    
-    auto result = boost.generate_quote();
-    EXPECT_EQ(result.status, boost_lib::ErrorCode::SUCCESS);
-    EXPECT_FALSE(result.quote_data.empty());
-    EXPECT_FALSE(result.message.empty());
-}
 
 TEST_F(BoostLibTest, StartApp) {
     boost_lib::BoostLib boost;
@@ -106,4 +98,13 @@ TEST_F(BoostLibTest, StartApp) {
     EXPECT_EQ(result.status, boost_lib::ErrorCode::SUCCESS);
     EXPECT_FALSE(result.volumes_hash.empty());
     EXPECT_EQ(result.volumes_hash.size(), boost_lib::HASH_LEN);
+}
+
+TEST_F(BoostLibTest, GenerateQuote) {
+    boost_lib::BoostLib boost;
+    
+    auto result = boost.generate_quote();
+    EXPECT_EQ(result.status, boost_lib::ErrorCode::SUCCESS);
+    EXPECT_FALSE(result.quote_data.empty());
+    EXPECT_FALSE(result.message.empty());
 }

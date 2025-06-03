@@ -62,7 +62,6 @@ else()
         set(TDX_ATTEST_LIBRARIES tdx_attest_local)
         set(TDX_ATTEST_INCLUDE_DIRS ${DEPS_DIR})
         set(USE_LOCAL_TDX TRUE)
-        
         message(STATUS "Built local TDX attestation library from deps/")
     else()
         message(WARNING "Neither system TDX library nor deps sources found - using mock implementation")
@@ -265,6 +264,7 @@ if(BUILD_TESTING)
         add_executable(tapp_tests
             tests/test_boost.cpp
             tests/test_key_tool.cpp
+            tests/test_grpc_service.cpp
         )
         
         target_link_libraries(tapp_tests
@@ -272,8 +272,12 @@ if(BUILD_TESTING)
             key_tool_lib
             GTest::GTest
             GTest::Main
+            tapp_proto
+            gRPC::grpc++
+            gRPC::grpc++_reflection
         )
-        
+        target_include_directories(tapp_tests PRIVATE ${PROTO_OUT_DIR})
+
         add_test(NAME TappTests COMMAND tapp_tests)
     endif()
 endif()

@@ -10,6 +10,8 @@
 #include <vector>
 #include <memory>
 #include <cstdint>
+#include <mutex>
+#include <chrono>
 
 namespace boost_lib {
 
@@ -27,6 +29,12 @@ enum class ErrorCode {
     DOCKER_START = -5
 };
 
+// Attestation mode selection
+enum class AttestationMode {
+    REPORT_DATA = 0,  // Use report data for attestation (default)
+    RTMR = 1         // Use RTMR extension for attestation
+};
+
 /**
  * @brief Result structure for start_app operation
  */
@@ -34,8 +42,11 @@ struct StartAppResult {
     ErrorCode status;
     std::string message;
     std::vector<uint8_t> volumes_hash;
+    AttestationMode mode;                   // Attestation mode used
+    std::string app_identifier;            // App identifier for reference
     
-    StartAppResult() : status(ErrorCode::SUCCESS), volumes_hash(HASH_LEN, 0) {}
+    StartAppResult() : status(ErrorCode::SUCCESS), volumes_hash(HASH_LEN, 0), 
+                      mode(AttestationMode::REPORT_DATA) {}
 };
 
 /**
@@ -74,6 +85,16 @@ public:
     StartAppResult start_app(const std::string& compose_content, int rtmr_index);
     
     /**
+     * @brief Start application from Docker Compose content with attestation mode
+     * @param compose_content Docker Compose YAML content
+     * @param mode Attestation mode (REPORT_DATA or RTMR)
+     * @param rtmr_index RTMR index to extend (0-3, only used in RTMR mode)
+     * @return StartAppResult with status and hash
+     */
+    StartAppResult start_app(const std::string& compose_content, 
+                            AttestationMode mode, int rtmr_index = 0);
+    
+    /**
      * @brief Generate TDX quote
      * @param report_data Custom report data (optional)
      * @return QuoteResult with quote data
@@ -101,6 +122,35 @@ public:
      */
     static void print_hex(const std::string& label, const std::vector<uint8_t>& data);
 
+    /**
+     * @brief Check if measurement data is available for attestation
+     * @return true if measurement is ready, false otherwise
+     */
+    bool has_valid_measurement() const;
+
+    /**
+     * @brief Get the timestamp when measurement was created
+     * @return timestamp of measurement creation
+     */
+    std::chrono::system_clock::time_point get_measurement_timestamp() const;
+
+    /**
+     * @brief Clear cached measurement data
+     */
+    void clear_measurement();
+
+    /**
+     * @brief Get current attestation mode
+     * @return current attestation mode
+     */
+    AttestationMode get_attestation_mode() const;
+
+    /**
+     * @brief Get app identifier for current measurement
+     * @return app identifier string
+     */
+    std::string get_app_identifier() const;
+
 private:
     /**
      * @brief Calculate hash of a single file
@@ -123,7 +173,36 @@ private:
      */
     bool start_docker_compose_from_file(const std::string& compose_file);
     
+    /**
+     * @brief Store measurement data securely in memory
+     * @param measurement_data The measurement hash to store
+     * @param mode Attestation mode used
+     * @param app_id Application identifier
+     * @param rtmr_index RTMR index used (if applicable)
+     */
+    void store_measurement_data(const std::vector<uint8_t>& measurement_data,
+                               AttestationMode mode,
+                               const std::string& app_id,
+                               int rtmr_index = -1);
+
+    /**
+     * @brief Combine app root measurement with additional data for quote generation
+     * @param additional_data Additional data from caller
+     * @return Combined report data for TDX quote
+     */
+    std::vector<uint8_t> prepare_report_data(const std::vector<uint8_t>& additional_data);
+    
+    // Original member
     bool initialized_;
+    
+    // New members for measurement storage (secure memory)
+    mutable std::mutex measurement_mutex_;
+    std::vector<uint8_t> app_root_measurement_;     // App root measurement (max 32 bytes)
+    bool measurement_ready_;
+    AttestationMode current_mode_;
+    std::string app_identifier_;
+    std::chrono::system_clock::time_point measurement_timestamp_;
+    int used_rtmr_index_;  // Store which RTMR was used (for reference)
 };
 
 } // namespace boost_lib
