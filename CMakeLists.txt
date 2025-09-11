@@ -24,184 +24,38 @@ option(BUILD_TESTING "Build tests" OFF)
 include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${CMAKE_SOURCE_DIR}/rpc)
 
-# Custom module for TDX detection
-include(${CMAKE_SOURCE_DIR}/cmake/FindTDX.cmake)
+# Add custom module path for FindTDX
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
 # ============================================================================
 # TDX Hardware Detection and Support Configuration
 # ============================================================================
 
-# Function to check TDX hardware support
-function(check_tdx_hardware_support)
-    set(TDX_HARDWARE_SUPPORTED FALSE PARENT_SCOPE)
-    
-    if(FORCE_TDX_SUPPORT)
-        message(STATUS "TDX support forced by FORCE_TDX_SUPPORT option")
-        set(TDX_HARDWARE_SUPPORTED TRUE PARENT_SCOPE)
-        return()
-    endif()
-    
-    # Check if running on Linux
-    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        message(STATUS "TDX hardware check: Not on Linux system")
-        return()
-    endif()
-    
-    # Method 1: Check CPU flags for TDX guest support
-    execute_process(
-        COMMAND lscpu
-        OUTPUT_VARIABLE LSCPU_OUTPUT
-        ERROR_QUIET
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    
-    if(LSCPU_OUTPUT MATCHES "tdx_guest")
-        message(STATUS "TDX hardware check: tdx_guest flag detected in CPU")
-        set(TDX_HARDWARE_SUPPORTED TRUE PARENT_SCOPE)
-        return()
-    endif()
-    
-    # Method 2: Check /dev/tdx_guest device file
-    if(EXISTS "/dev/tdx_guest")
-        message(STATUS "TDX hardware check: /dev/tdx_guest device found")
-        set(TDX_HARDWARE_SUPPORTED TRUE PARENT_SCOPE)
-        return()
-    endif()
-    
-    # Method 3: Check for TDX-related kernel modules
-    execute_process(
-        COMMAND sh -c "lsmod | grep -E 'tdx|intel_tdx' || true"
-        OUTPUT_VARIABLE LSMOD_OUTPUT
-        ERROR_QUIET
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    
-    if(NOT LSMOD_OUTPUT STREQUAL "")
-        message(STATUS "TDX hardware check: TDX kernel modules detected")
-        set(TDX_HARDWARE_SUPPORTED TRUE PARENT_SCOPE)
-        return()
-    endif()
-    
-    # Method 4: Check CPUID for TDX support (more advanced check)
-    execute_process(
-        COMMAND sh -c "grep -E 'flags.*tdx_guest' /proc/cpuinfo || true"
-        OUTPUT_VARIABLE CPUINFO_OUTPUT
-        ERROR_QUIET
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    
-    if(NOT CPUINFO_OUTPUT STREQUAL "")
-        message(STATUS "TDX hardware check: TDX guest support found in /proc/cpuinfo")
-        set(TDX_HARDWARE_SUPPORTED TRUE PARENT_SCOPE)
-        return()
-    endif()
-    
-    message(STATUS "TDX hardware check: No TDX hardware support detected")
-endfunction()
-
-# Function to find TDX attestation library and headers
-function(find_tdx_attestation_library)
-    set(TDX_ATTEST_FOUND FALSE PARENT_SCOPE)
-    
-    # Find TDX attestation library (system installation first)
-    find_library(TDX_ATTEST_LIBRARY
-        NAMES tdx_attest libtdx_attest
-        PATHS /usr/lib64 /usr/lib /usr/local/lib64 /usr/local/lib
-        DOC "TDX attestation library"
-    )
-    
-    find_path(TDX_ATTEST_INCLUDE_DIR
-        NAMES tdx_attest.h
-        PATHS /usr/include /usr/local/include
-        DOC "TDX attestation include directory"
-    )
-    
-    if(TDX_ATTEST_LIBRARY AND TDX_ATTEST_INCLUDE_DIR)
-        set(TDX_ATTEST_FOUND TRUE PARENT_SCOPE)
-        set(TDX_ATTEST_LIBRARIES ${TDX_ATTEST_LIBRARY} PARENT_SCOPE)
-        set(TDX_ATTEST_INCLUDE_DIRS ${TDX_ATTEST_INCLUDE_DIR} PARENT_SCOPE)
-        set(USE_SYSTEM_TDX TRUE PARENT_SCOPE)
-        message(STATUS "Found system TDX attestation library: ${TDX_ATTEST_LIBRARY}")
-        message(STATUS "  Include: ${TDX_ATTEST_INCLUDE_DIR}")
-    else()
-        message(STATUS "System TDX attestation library not found")
-    endif()
-endfunction()
-
-# Function to build local TDX attestation library
-function(build_local_tdx_library)
-    set(TDX_ATTEST_FOUND FALSE PARENT_SCOPE)
-    set(DEPS_DIR ${CMAKE_SOURCE_DIR}/deps)
-    
-    # Check if deps source files exist
-    set(REQUIRED_DEPS_FILES
-        ${DEPS_DIR}/tdx_attest.c
-        ${DEPS_DIR}/tdx_attest.h
-        ${DEPS_DIR}/qgs_msg_lib.c
-        ${DEPS_DIR}/qgs_msg_lib.h
-    )
-    
-    set(ALL_DEPS_EXIST TRUE)
-    foreach(DEPS_FILE ${REQUIRED_DEPS_FILES})
-        if(NOT EXISTS ${DEPS_FILE})
-            set(ALL_DEPS_EXIST FALSE)
-            message(STATUS "Missing deps file: ${DEPS_FILE}")
-        endif()
-    endforeach()
-    
-    if(ALL_DEPS_EXIST)
-        message(STATUS "Building local TDX attestation library from deps/")
-        
-        # Create static library from deps sources
-        add_library(tdx_attest_local STATIC
-            ${DEPS_DIR}/tdx_attest.c
-            ${DEPS_DIR}/qgs_msg_lib.c
-        )
-        
-        target_include_directories(tdx_attest_local PUBLIC ${DEPS_DIR})
-        
-        # Set variables for linking
-        set(TDX_ATTEST_FOUND TRUE PARENT_SCOPE)
-        set(TDX_ATTEST_LIBRARIES tdx_attest_local PARENT_SCOPE)
-        set(TDX_ATTEST_INCLUDE_DIRS ${DEPS_DIR} PARENT_SCOPE)
-        set(USE_LOCAL_TDX TRUE PARENT_SCOPE)
-        set(TDX_ATTEST_LOCAL_TARGET tdx_attest_local PARENT_SCOPE)
-        message(STATUS "Built local TDX attestation library from deps/")
-    else()
-        message(STATUS "Required deps source files not found - TDX support disabled")
-    endif()
-endfunction()
-
-# Main TDX configuration logic
 message(STATUS "=== TDX Configuration ===")
-check_tdx_hardware_support()
 
-if(TDX_HARDWARE_SUPPORTED)
-    message(STATUS "TDX hardware support detected")
-    
-    # First try to find system library
-    find_tdx_attestation_library()
-    
-    # If system library not found, try to build from deps
-    if(NOT TDX_ATTEST_FOUND)
-        build_local_tdx_library()
-    endif()
-    
-    # Configure TDX support
-    if(TDX_ATTEST_FOUND)
-        add_definitions(-DHAVE_TDX_ATTEST)
-        if(USE_LOCAL_TDX)
-            message(STATUS "TDX support: ENABLED (Local implementation from deps/)")
-        else()
-            message(STATUS "TDX support: ENABLED (System library)")
-        endif()
-        message(STATUS "  Libraries: ${TDX_ATTEST_LIBRARIES}")
-        message(STATUS "  Include: ${TDX_ATTEST_INCLUDE_DIRS}")
+# Set TDX options before calling find_package
+if(FORCE_TDX_SUPPORT)
+    set(TDX_FORCE_SUPPORT ON)
+endif()
+
+# Use the proper FindTDX module
+find_package(TDX)
+
+if(TDX_FOUND)
+    add_definitions(-DHAVE_TDX_ATTEST)
+    if(TDX_USE_LOCAL_IMPLEMENTATION)
+        message(STATUS "TDX support: ENABLED (Local implementation from deps/)")
     else()
-        message(STATUS "TDX support: DISABLED (No library/sources available)")
+        message(STATUS "TDX support: ENABLED (System library)")
     endif()
+    message(STATUS "  Libraries: ${TDX_ATTEST_LIBRARIES}")
+    message(STATUS "  Include: ${TDX_ATTEST_INCLUDE_DIRS}")
 else()
-    message(STATUS "TDX support: DISABLED (No hardware support)")
+    if(TDX_HARDWARE_SUPPORTED)
+        message(STATUS "TDX support: DISABLED (No library/sources available)")
+    else()
+        message(STATUS "TDX support: DISABLED (No hardware support)")
+    endif()
 endif()
 
 message(STATUS "=========================")
@@ -211,7 +65,9 @@ message(STATUS "=========================")
 # ============================================================================
 
 find_package(PkgConfig REQUIRED)
-find_package(Protobuf REQUIRED)
+if(NOT TARGET protobuf::libprotobuf)
+    find_package(Protobuf REQUIRED)
+endif()
 find_package(gRPC REQUIRED)
 find_package(OpenSSL REQUIRED)
 
@@ -280,9 +136,11 @@ target_link_libraries(boost_lib
 )
 
 # Add TDX support to boost_lib if available
-if(TDX_ATTEST_FOUND)
+if(TDX_FOUND)
     target_link_libraries(boost_lib ${TDX_ATTEST_LIBRARIES})
     target_include_directories(boost_lib PRIVATE ${TDX_ATTEST_INCLUDE_DIRS})
+    # Or use the imported target if you prefer:
+    # target_link_libraries(boost_lib TDX::tdx_attest)
 endif()
 
 # Key tool library
@@ -297,9 +155,11 @@ target_link_libraries(key_tool_lib
 )
 
 # Add TDX support to key_tool_lib if available
-if(TDX_ATTEST_FOUND)
+if(TDX_FOUND)
     target_link_libraries(key_tool_lib ${TDX_ATTEST_LIBRARIES})
     target_include_directories(key_tool_lib PRIVATE ${TDX_ATTEST_INCLUDE_DIRS})
+    # Or use the imported target if you prefer:
+    # target_link_libraries(key_tool_lib TDX::tdx_attest)
 endif()
 
 # ============================================================================
@@ -390,8 +250,8 @@ install(TARGETS boost_lib key_tool_lib
 )
 
 # Install local TDX library if built
-if(USE_LOCAL_TDX AND TDX_ATTEST_LOCAL_TARGET)
-    install(TARGETS ${TDX_ATTEST_LOCAL_TARGET}
+if(TDX_USE_LOCAL_IMPLEMENTATION AND TARGET tdx_attest_local)
+    install(TARGETS tdx_attest_local
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib
     )
@@ -412,8 +272,6 @@ configure_file(
 install(FILES ${CMAKE_BINARY_DIR}/tdx_tapp.pc
     DESTINATION lib/pkgconfig
 )
-
-
 
 # ============================================================================
 # Development Helpers
@@ -457,8 +315,8 @@ message(STATUS "  Install Prefix: ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "  OpenSSL Version: ${OPENSSL_VERSION}")
 message(STATUS "  Protobuf Version: ${Protobuf_VERSION}")
 
-if(TDX_ATTEST_FOUND)
-    if(USE_LOCAL_TDX)
+if(TDX_FOUND)
+    if(TDX_USE_LOCAL_IMPLEMENTATION)
         message(STATUS "  TDX Support: ENABLED (Local Implementation)")
     else()
         message(STATUS "  TDX Support: ENABLED (System Library)")
@@ -476,8 +334,6 @@ if(BUILD_TESTING AND GTest_FOUND)
 else()
     message(STATUS "  Testing: DISABLED")
 endif()
-
-
 
 message(STATUS "=====================================")
 message(STATUS "")

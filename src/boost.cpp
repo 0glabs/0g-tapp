@@ -53,6 +53,7 @@ typedef struct {
 
 namespace {
     int tdx_att_get_report(const tdx_report_data_t *report_data, tdx_report_t *report) {
+        std::cout << "[MOCK] Generating TDX report" << std::endl;
         const uint8_t mock_report_data[32] = {
             0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
             0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32, 0x10,
@@ -78,6 +79,7 @@ namespace {
     }
 
     int tdx_att_extend(const tdx_rtmr_event_t *p_rtmr_event) {
+        std::cout << "[MOCK] Extending RTMR" << std::endl;
         if (!p_rtmr_event || p_rtmr_event->version != 1 || p_rtmr_event->rtmr_index > 3) {
             return TDX_ATTEST_ERROR_INVALID_PARAMETER;
         }
@@ -90,6 +92,7 @@ namespace {
                           tdx_uuid_t *p_att_key_id,
                           uint8_t **pp_quote, uint32_t *p_quote_size,
                           uint32_t flags) {
+        std::cout << "[MOCK] Getting TDX quote" << std::endl;
         tdx_report_t report;
         if (tdx_att_get_report(report_data, &report) != TDX_ATTEST_SUCCESS) {
             return -1;
@@ -116,6 +119,7 @@ namespace {
     }
 
     void tdx_att_free_quote(uint8_t *p_quote) {
+        std::cout << "[MOCK] Freeing TDX quote" << std::endl;
         if (p_quote) {
             std::free(p_quote);
             std::cout << "[MOCK] Freed TDX quote" << std::endl;
@@ -329,10 +333,12 @@ QuoteResult BoostLib::generate_quote(const std::vector<uint8_t>& additional_repo
         uint8_t *p_quote_buf = nullptr;
         uint32_t quote_size = 0;
         
-        if (tdx_att_get_quote(&tdx_report_data, nullptr, 0, nullptr,
-                              &p_quote_buf, &quote_size, 0) != TDX_ATTEST_SUCCESS) {
+        int ret = tdx_att_get_quote(&tdx_report_data, nullptr, 0, nullptr,
+                              &p_quote_buf, &quote_size, 0);
+        if (ret != TDX_ATTEST_SUCCESS) {
+            std::cerr << "Failed to get TDX quote: " << ret << std::endl;
             result.status = ErrorCode::TDX_EXTEND;
-            result.message = "Failed to get TDX quote";
+            result.message = "Failed to get TDX quote: " + std::to_string(ret);
             return result;
         }
 
@@ -353,11 +359,13 @@ QuoteResult BoostLib::generate_quote(const std::vector<uint8_t>& additional_repo
         // Generate quote with combined report data
         uint8_t *p_quote_buf = nullptr;
         uint32_t quote_size = 0;
-        
-        if (tdx_att_get_quote(&tdx_report_data, nullptr, 0, nullptr,
-                              &p_quote_buf, &quote_size, 0) != TDX_ATTEST_SUCCESS) {
+
+        int ret = tdx_att_get_quote(&tdx_report_data, nullptr, 0, nullptr,
+                              &p_quote_buf, &quote_size, 0);
+        if (ret != TDX_ATTEST_SUCCESS) {
+            std::cerr << "Failed to get TDX quote: " << ret << std::endl;
             result.status = ErrorCode::TDX_EXTEND;
-            result.message = "Failed to get TDX quote";
+            result.message = "Failed to get TDX quote: " + std::to_string(ret);
             return result;
         }
 

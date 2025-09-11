@@ -37,6 +37,7 @@ typedef struct {
 
 namespace {
     int tdx_att_get_report(const tdx_report_data_t *report_data, tdx_report_t *report) {
+        std::cout << "[MOCK] Getting TDX report" << std::endl;
         const uint8_t mock_report_data[32] = {
             0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
             0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32, 0x10,
@@ -201,8 +202,9 @@ bool KeyToolLib::get_private_key_from_tdx_report(SecureBuffer<ETH_PRIVKEY_LEN>& 
     tdx_report_t tdx_report = {{0}};
     
     // Get TDX report
-    if (tdx_att_get_report(&report_data, &tdx_report) != TDX_ATTEST_SUCCESS) {
-        std::cerr << "Failed to get TDX report" << std::endl;
+    int ret = tdx_att_get_report(&report_data, &tdx_report);
+    if (ret != TDX_ATTEST_SUCCESS) {
+        std::cerr << "Failed to get TDX report: " << ret << std::endl;
         return false;
     }
     
