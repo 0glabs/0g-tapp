@@ -15,6 +15,7 @@
 #include "tapp_service.grpc.pb.h"
 #include "boost.hpp"
 #include "key_tool.hpp"
+#include "system_monitor.hpp"
 
 using grpc::Server;
 using grpc::ServerBuilder;
@@ -28,17 +29,27 @@ using tapp_service::GetQuoteRequest;
 using tapp_service::GetQuoteResponse;
 using tapp_service::GetPubkeyRequest;
 using tapp_service::GetPubkeyResponse;
+using tapp_service::GetServiceStatusRequest;
+using tapp_service::GetServiceStatusResponse;
+using tapp_service::GetServiceLogsRequest;
+using tapp_service::GetServiceLogsResponse;
+using tapp_service::StreamServiceLogsRequest;
+using tapp_service::StreamServiceLogsResponse;
 using tapp_service::AttestationMode;
+using tapp_service::LogLevel;
+using tapp_service::ServiceHealthStatus;
 class TappServiceImpl final : public TappService::Service {
 private:
     std::unique_ptr<boost_lib::BoostLib> boost_lib_;
     std::unique_ptr<key_tool::KeyToolLib> key_tool_lib_;
+    std::unique_ptr<system_monitor::SystemMonitor> system_monitor_;
 
 public:
     TappServiceImpl() {
         try {
             boost_lib_ = std::make_unique<boost_lib::BoostLib>();
             key_tool_lib_ = std::make_unique<key_tool::KeyToolLib>();
+            system_monitor_ = std::make_unique<system_monitor::SystemMonitor>();
             std::cout << "✅ TAPP gRPC Service initialized successfully" << std::endl;
         } catch (const std::exception& e) {
             std::cerr << "❌ Failed to initialize TAPP service: " << e.what() << std::endl;
@@ -165,6 +176,257 @@ public:
             response->set_success(false);
             response->set_message("Internal error: " + std::string(e.what()));
             std::cerr << "❌ GetPubkey exception: " << e.what() << std::endl;
+        }
+        
+        return Status::OK;
+    }
+
+    Status GetServiceStatus(ServerContext* context, const GetServiceStatusRequest* request,
+                           GetServiceStatusResponse* response) override {
+        (void)context; // Suppress unused parameter warning
+        
+        std::cout << "🔍 GetServiceStatus request received" << std::endl;
+        
+        try {
+            auto result = system_monitor_->get_service_status(request->service_name());
+            
+            if (result.status == system_monitor::ErrorCode::SUCCESS) {
+                response->set_success(true);
+                response->set_message(result.message);
+                response->set_timestamp(std::chrono::duration_cast<std::chrono::seconds>(
+                    result.timestamp.time_since_epoch()).count());
+                
+                // Convert system_monitor ServiceInfo to protobuf ServiceInfo
+                for (const auto& service : result.services) {
+                    auto* service_info = response->add_services();
+                    service_info->set_name(service.name);
+                    
+                    // Convert health status
+                    switch (service.status) {
+                        case system_monitor::ServiceHealthStatus::HEALTHY:
+                            service_info->set_status(ServiceHealthStatus::HEALTHY);
+                            break;
+                        case system_monitor::ServiceHealthStatus::UNHEALTHY:
+                            service_info->set_status(ServiceHealthStatus::UNHEALTHY);
+                            break;
+                        default:
+                            service_info->set_status(ServiceHealthStatus::UNKNOWN);
+                            break;
+                    }
+                    
+                    service_info->set_status_message(service.status_message);
+                    service_info->set_uptime_seconds(service.uptime.count());
+                    service_info->set_memory_usage_mb(service.memory_usage_mb);
+                    service_info->set_cpu_usage_percent(service.cpu_usage_percent);
+                    service_info->set_pid(service.pid);
+                    service_info->set_version(service.version);
+                }
+                
+                std::cout << "✅ GetServiceStatus completed successfully for " 
+                         << result.services.size() << " service(s)" << std::endl;
+            } else {
+                response->set_success(false);
+                response->set_message(result.message);
+                std::cerr << "❌ GetServiceStatus failed: " << result.message << std::endl;
+            }
+        } catch (const std::exception& e) {
+            response->set_success(false);
+            response->set_message("Internal error: " + std::string(e.what()));
+            std::cerr << "❌ GetServiceStatus exception: " << e.what() << std::endl;
+        }
+        
+        return Status::OK;
+    }
+
+    Status GetServiceLogs(ServerContext* context, const GetServiceLogsRequest* request,
+                         GetServiceLogsResponse* response) override {
+        (void)context; // Suppress unused parameter warning
+        
+        std::cout << "📋 GetServiceLogs request received for service: " 
+                 << (request->service_name().empty() ? "tapp-server" : request->service_name()) << std::endl;
+        
+        try {
+            // Convert protobuf LogLevel to system_monitor LogLevel
+            system_monitor::LogLevel min_level = system_monitor::LogLevel::DEBUG;
+            switch (request->min_level()) {
+                case LogLevel::ERROR:
+                    min_level = system_monitor::LogLevel::ERROR;
+                    break;
+                case LogLevel::WARNING:
+                    min_level = system_monitor::LogLevel::WARNING;
+                    break;
+                case LogLevel::INFO:
+                    min_level = system_monitor::LogLevel::INFO;
+                    break;
+                case LogLevel::DEBUG:
+                    min_level = system_monitor::LogLevel::DEBUG;
+                    break;
+            }
+            
+            auto result = system_monitor_->get_service_logs(
+                request->service_name().empty() ? "tapp-server" : request->service_name(),
+                request->lines() > 0 ? request->lines() : 100,
+                request->since(),
+                request->until(),
+                min_level,
+                request->grep_pattern(),
+                request->json_format()
+            );
+            
+            if (result.status == system_monitor::ErrorCode::SUCCESS) {
+                response->set_success(true);
+                response->set_message(result.message);
+                response->set_total_lines(result.total_lines);
+                response->set_truncated(result.truncated);
+                
+                // Convert system_monitor LogEntry to protobuf LogEntry
+                for (const auto& log : result.logs) {
+                    auto* log_entry = response->add_logs();
+                    
+                    log_entry->set_timestamp(std::chrono::duration_cast<std::chrono::seconds>(
+                        log.timestamp.time_since_epoch()).count());
+                    log_entry->set_timestamp_str(log.timestamp_str);
+                    
+                    // Convert log level
+                    switch (log.level) {
+                        case system_monitor::LogLevel::ERROR:
+                            log_entry->set_level(LogLevel::ERROR);
+                            break;
+                        case system_monitor::LogLevel::WARNING:
+                            log_entry->set_level(LogLevel::WARNING);
+                            break;
+                        case system_monitor::LogLevel::INFO:
+                            log_entry->set_level(LogLevel::INFO);
+                            break;
+                        case system_monitor::LogLevel::DEBUG:
+                            log_entry->set_level(LogLevel::DEBUG);
+                            break;
+                    }
+                    
+                    log_entry->set_message(log.message);
+                    log_entry->set_service_name(log.service_name);
+                    
+                    // Copy metadata
+                    for (const auto& meta : log.metadata) {
+                        (*log_entry->mutable_metadata())[meta.first] = meta.second;
+                    }
+                }
+                
+                std::cout << "✅ GetServiceLogs completed successfully, returned " 
+                         << result.logs.size() << " log entries" << std::endl;
+            } else {
+                response->set_success(false);
+                response->set_message(result.message);
+                response->set_total_lines(0);
+                response->set_truncated(false);
+                std::cerr << "❌ GetServiceLogs failed: " << result.message << std::endl;
+            }
+        } catch (const std::exception& e) {
+            response->set_success(false);
+            response->set_message("Internal error: " + std::string(e.what()));
+            std::cerr << "❌ GetServiceLogs exception: " << e.what() << std::endl;
+        }
+        
+        return Status::OK;
+    }
+
+    Status StreamServiceLogs(ServerContext* context, const StreamServiceLogsRequest* request,
+                            grpc::ServerWriter<StreamServiceLogsResponse>* writer) override {
+        std::cout << "📡 StreamServiceLogs request received for service: " 
+                 << (request->service_name().empty() ? "tapp-server" : request->service_name()) << std::endl;
+        
+        try {
+            // Convert protobuf LogLevel to system_monitor LogLevel
+            system_monitor::LogLevel min_level = system_monitor::LogLevel::DEBUG;
+            switch (request->min_level()) {
+                case LogLevel::ERROR:
+                    min_level = system_monitor::LogLevel::ERROR;
+                    break;
+                case LogLevel::WARNING:
+                    min_level = system_monitor::LogLevel::WARNING;
+                    break;
+                case LogLevel::INFO:
+                    min_level = system_monitor::LogLevel::INFO;
+                    break;
+                case LogLevel::DEBUG:
+                    min_level = system_monitor::LogLevel::DEBUG;
+                    break;
+            }
+            
+            std::atomic<bool> stream_active(true);
+            
+            // Set up callback for log stream
+            auto callback = [&](const system_monitor::LogEntry& log, bool is_initial) {
+                if (!stream_active || context->IsCancelled()) {
+                    return;
+                }
+                
+                StreamServiceLogsResponse response;
+                auto* log_entry = response.mutable_log_entry();
+                
+                log_entry->set_timestamp(std::chrono::duration_cast<std::chrono::seconds>(
+                    log.timestamp.time_since_epoch()).count());
+                log_entry->set_timestamp_str(log.timestamp_str);
+                
+                // Convert log level
+                switch (log.level) {
+                    case system_monitor::LogLevel::ERROR:
+                        log_entry->set_level(LogLevel::ERROR);
+                        break;
+                    case system_monitor::LogLevel::WARNING:
+                        log_entry->set_level(LogLevel::WARNING);
+                        break;
+                    case system_monitor::LogLevel::INFO:
+                        log_entry->set_level(LogLevel::INFO);
+                        break;
+                    case system_monitor::LogLevel::DEBUG:
+                        log_entry->set_level(LogLevel::DEBUG);
+                        break;
+                }
+                
+                log_entry->set_message(log.message);
+                log_entry->set_service_name(log.service_name);
+                
+                // Copy metadata
+                for (const auto& meta : log.metadata) {
+                    (*log_entry->mutable_metadata())[meta.first] = meta.second;
+                }
+                
+                response.set_is_initial(is_initial);
+                
+                if (!writer->Write(response)) {
+                    stream_active = false;
+                }
+            };
+            
+            // Start log streaming
+            auto result = system_monitor_->start_log_stream(
+                request->service_name().empty() ? "tapp-server" : request->service_name(),
+                min_level,
+                request->grep_pattern(),
+                request->tail_lines() > 0 ? request->tail_lines() : 50,
+                callback
+            );
+            
+            if (result == system_monitor::ErrorCode::SUCCESS) {
+                // Keep streaming until client disconnects or context is cancelled
+                while (stream_active && !context->IsCancelled()) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                }
+                
+                std::cout << "✅ StreamServiceLogs completed" << std::endl;
+            } else {
+                std::cerr << "❌ Failed to start log stream: " 
+                         << system_monitor::error_code_to_string(result) << std::endl;
+                return Status(grpc::StatusCode::INTERNAL, "Failed to start log stream");
+            }
+            
+            // Stop the log stream
+            system_monitor_->stop_log_stream();
+            
+        } catch (const std::exception& e) {
+            std::cerr << "❌ StreamServiceLogs exception: " << e.what() << std::endl;
+            return Status(grpc::StatusCode::INTERNAL, "Internal error: " + std::string(e.what()));
         }
         
         return Status::OK;

@@ -162,6 +162,16 @@ if(TDX_FOUND)
     # target_link_libraries(key_tool_lib TDX::tdx_attest)
 endif()
 
+# System monitor library
+add_library(system_monitor_lib
+    src/system_monitor.cpp
+)
+
+target_include_directories(system_monitor_lib PUBLIC include)
+target_link_libraries(system_monitor_lib 
+    pthread
+)
+
 # ============================================================================
 # Build Executables
 # ============================================================================
@@ -184,6 +194,7 @@ add_executable(tapp_server
 target_link_libraries(tapp_server
     boost_lib
     key_tool_lib
+    system_monitor_lib
     tapp_proto
     gRPC::grpc++
     gRPC::grpc++_reflection
@@ -209,6 +220,7 @@ if(BUILD_TESTING)
         target_link_libraries(tapp_tests
             boost_lib
             key_tool_lib
+            system_monitor_lib
             tapp_proto
             GTest::GTest
             GTest::Main
@@ -240,11 +252,12 @@ install(TARGETS tapp_cli tapp_server
 install(FILES 
     include/boost.hpp
     include/key_tool.hpp
+    include/system_monitor.hpp
     DESTINATION include/tdx_tapp
 )
 
 # Install libraries
-install(TARGETS boost_lib key_tool_lib
+install(TARGETS boost_lib key_tool_lib system_monitor_lib
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
 )

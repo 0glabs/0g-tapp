@@ -12,11 +12,33 @@ service TappService {
     
     // Get public key derived from TDX report
     rpc GetPubkey(GetPubkeyRequest) returns (GetPubkeyResponse);
+    
+    // Get service status and health information
+    rpc GetServiceStatus(GetServiceStatusRequest) returns (GetServiceStatusResponse);
+    
+    // Get service logs with filtering options
+    rpc GetServiceLogs(GetServiceLogsRequest) returns (GetServiceLogsResponse);
+    
+    // Stream service logs in real-time
+    rpc StreamServiceLogs(StreamServiceLogsRequest) returns (stream StreamServiceLogsResponse);
 }
 
 enum AttestationMode {
     REPORT_DATA = 0;
     RTMR = 1;
+}
+
+enum LogLevel {
+    DEBUG = 0;
+    INFO = 1;
+    WARNING = 2;
+    ERROR = 3;
+}
+
+enum ServiceHealthStatus {
+    HEALTHY = 0;
+    UNHEALTHY = 1;
+    UNKNOWN = 2;
 }
 
 // Start App Messages
@@ -55,4 +77,69 @@ message GetPubkeyResponse {
     bytes public_key = 3;      // 64-byte uncompressed public key
     bytes eth_address = 4;     // 20-byte Ethereum address
     string eth_address_hex = 5; // 0x-prefixed hex string
+}
+
+// Service Status Messages
+message GetServiceStatusRequest {
+    string service_name = 1;   // Optional: specific service name to check
+}
+
+message ServiceInfo {
+    string name = 1;
+    ServiceHealthStatus status = 2;
+    string status_message = 3;
+    int64 uptime_seconds = 4;
+    int64 memory_usage_mb = 5;
+    double cpu_usage_percent = 6;
+    int32 pid = 7;
+    string version = 8;
+}
+
+message GetServiceStatusResponse {
+    bool success = 1;
+    string message = 2;
+    repeated ServiceInfo services = 3;
+    int64 timestamp = 4;
+}
+
+// Service Logs Messages
+message GetServiceLogsRequest {
+    string service_name = 1;        // Service name to get logs from (default: tapp-server)
+    int32 lines = 2;                // Number of lines to retrieve (default: 100)
+    string since = 3;               // Time filter: "1h", "30m", "2024-01-01 10:00:00"
+    string until = 4;               // Time filter: "1h", "30m", "2024-01-01 10:00:00"  
+    LogLevel min_level = 5;         // Minimum log level to include
+    string grep_pattern = 6;        // Pattern to filter log messages
+    bool follow = 7;                // Whether to follow logs (for streaming)
+    bool json_format = 8;           // Return logs in JSON format
+}
+
+message LogEntry {
+    int64 timestamp = 1;            // Unix timestamp
+    string timestamp_str = 2;       // Human-readable timestamp
+    LogLevel level = 3;             // Log level
+    string message = 4;             // Log message content
+    string service_name = 5;        // Service that generated the log
+    map<string, string> metadata = 6; // Additional metadata
+}
+
+message GetServiceLogsResponse {
+    bool success = 1;
+    string message = 2;
+    repeated LogEntry logs = 3;
+    int32 total_lines = 4;
+    bool truncated = 5;             // Whether results were truncated
+}
+
+// Stream Service Logs Messages
+message StreamServiceLogsRequest {
+    string service_name = 1;        // Service name to stream logs from
+    LogLevel min_level = 2;         // Minimum log level to include
+    string grep_pattern = 3;        // Pattern to filter log messages
+    int32 tail_lines = 4;           // Number of recent lines to send first (default: 50)
+}
+
+message StreamServiceLogsResponse {
+    LogEntry log_entry = 1;         // Single log entry
+    bool is_initial = 2;            // Whether this is from initial tail or new log
 }
