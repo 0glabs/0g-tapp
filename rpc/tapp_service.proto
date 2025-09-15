@@ -115,12 +115,11 @@ message GetServiceLogsRequest {
 }
 
 message LogEntry {
-    int64 timestamp = 1;            // Unix timestamp
-    string timestamp_str = 2;       // Human-readable timestamp
-    LogLevel level = 3;             // Log level
-    string message = 4;             // Log message content
-    string service_name = 5;        // Service that generated the log
-    map<string, string> metadata = 6; // Additional metadata
+    string timestamp = 1;            // Human-readable timestamp
+    LogLevel level = 2;              // Log level
+    string message = 3;              // Log message content
+    string service_name = 4;         // Service that generated the log
+    map<string, string> metadata = 5; // Additional metadata
 }
 
 message GetServiceLogsResponse {

@@ -221,14 +221,6 @@ private:
 
     std::optional<ServiceInfo> get_single_service_status(const std::string& service_name) {
         try {
-            // Check if service exists and get status
-            std::string cmd = "systemctl status " + service_name + " --no-pager -l 2>/dev/null || echo 'SERVICE_NOT_FOUND'";
-            std::string output = execute_command(cmd);
-            
-            if (output.find("SERVICE_NOT_FOUND") != std::string::npos) {
-                return std::nullopt;
-            }
-            
             ServiceInfo info;
             info.name = service_name;
             info.status = ServiceHealthStatus::UNKNOWN;
@@ -239,29 +231,45 @@ private:
             info.pid = -1;
             info.version = "Unknown";
             
-            // Parse systemctl output
-            if (output.find("Active: active (running)") != std::string::npos) {
-                info.status = ServiceHealthStatus::HEALTHY;
-                info.status_message = "Running";
-            } else if (output.find("Active: inactive") != std::string::npos) {
-                info.status = ServiceHealthStatus::UNHEALTHY;
-                info.status_message = "Inactive";
-            } else if (output.find("Active: failed") != std::string::npos) {
-                info.status = ServiceHealthStatus::UNHEALTHY;
-                info.status_message = "Failed";
+            std::string is_active_cmd = "systemctl is-active " + service_name + " 2>/dev/null || echo 'not-found'";
+            std::string status_output = execute_command(is_active_cmd);
+            
+            status_output.erase(std::remove(status_output.begin(), status_output.end(), '\n'), status_output.end());
+            
+            if (status_output == "not-found") {
+                return std::nullopt;
             }
             
-            // Extract PID if available
-            std::regex pid_regex(R"(Main PID: (\d+))");
-            std::smatch pid_match;
-            if (std::regex_search(output, pid_match, pid_regex)) {
-                info.pid = std::stoi(pid_match[1].str());
-                
-                // Get additional process information if PID is available
-                get_process_info(info.pid, info);
+            if (status_output == "active") {
+                info.status = ServiceHealthStatus::HEALTHY;
+                info.status_message = "Running";
+            } else if (status_output == "inactive") {
+                info.status = ServiceHealthStatus::UNHEALTHY;
+                info.status_message = "Inactive";
+            } else if (status_output == "failed") {
+                info.status = ServiceHealthStatus::UNHEALTHY;
+                info.status_message = "Failed";
+            } else {
+                info.status_message = status_output;
+            }
+            
+            if (status_output == "active") {
+                try {
+                    std::string pid_cmd = "systemctl show " + service_name + " --property=MainPID --value 2>/dev/null";
+                    std::string pid_output = execute_command(pid_cmd);
+                    pid_output.erase(std::remove(pid_output.begin(), pid_output.end(), '\n'), pid_output.end());
+                    
+                    if (!pid_output.empty() && pid_output != "0") {
+                        info.pid = std::stoi(pid_output);
+                        get_process_info(info.pid, info);
+                    }
+                } catch (const std::exception& e) {
+                    std::cerr << "Failed to get PID for " << service_name << ": " << e.what() << std::endl;
+                }
             }
             
             return info;
+            
         } catch (const std::exception& e) {
             std::cerr << "Error getting service status for " << service_name << ": " << e.what() << std::endl;
             return std::nullopt;
@@ -319,13 +327,11 @@ private:
         if (!pipe) {
             throw std::runtime_error("Failed to execute command: " + cmd);
         }
-        
         std::string result;
         char buffer[4096];
         while (fgets(buffer, sizeof(buffer), pipe)) {
             result += buffer;
         }
-        
         int exit_code = pclose(pipe);
         if (exit_code != 0 && result.empty()) {
             throw std::runtime_error("Command failed with exit code: " + std::to_string(exit_code));
@@ -349,6 +355,12 @@ private:
         while (std::getline(stream, line)) {
             if (line.empty()) continue;
             
+            if (line.find("-- Logs begin at") != std::string::npos || 
+                line.find("-- Log entry truncated") != std::string::npos ||
+                line.find("-- Boot") != std::string::npos) {
+                continue;
+            }
+            
             // Apply grep filter
             if (!grep_pattern.empty() && line.find(grep_pattern) == std::string::npos) {
                 continue;
@@ -356,8 +368,6 @@ private:
             
             LogEntry entry;
             entry.service_name = service_name;
-            entry.timestamp = std::chrono::system_clock::now();
-            entry.message = line;
             entry.level = LogLevel::INFO;
             
             // Simple parsing of systemd journal format
@@ -366,7 +376,7 @@ private:
             std::smatch match;
             
             if (std::regex_search(line, match, journal_regex)) {
-                entry.timestamp_str = match[1].str();
+                entry.timestamp = match[1].str();
                 entry.service_name = match[2].str();
                 entry.message = match[3].str();
                 
@@ -385,7 +395,7 @@ private:
                 }
             } else {
                 // Fallback for lines that don't match expected format
-                entry.timestamp_str = "Unknown";
+                entry.timestamp = "Unknown";
                 entry.message = line;
             }
             

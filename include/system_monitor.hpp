@@ -38,8 +38,7 @@ enum class LogLevel {
 };
 
 struct LogEntry {
-    std::chrono::system_clock::time_point timestamp;
-    std::string timestamp_str;
+    std::string timestamp;
     LogLevel level;
     std::string message;
     std::string service_name;

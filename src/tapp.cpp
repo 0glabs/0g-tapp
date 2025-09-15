@@ -283,9 +283,7 @@ public:
                 for (const auto& log : result.logs) {
                     auto* log_entry = response->add_logs();
                     
-                    log_entry->set_timestamp(std::chrono::duration_cast<std::chrono::seconds>(
-                        log.timestamp.time_since_epoch()).count());
-                    log_entry->set_timestamp_str(log.timestamp_str);
+                    log_entry->set_timestamp(log.timestamp);
                     
                     // Convert log level
                     switch (log.level) {
@@ -364,9 +362,7 @@ public:
                 StreamServiceLogsResponse response;
                 auto* log_entry = response.mutable_log_entry();
                 
-                log_entry->set_timestamp(std::chrono::duration_cast<std::chrono::seconds>(
-                    log.timestamp.time_since_epoch()).count());
-                log_entry->set_timestamp_str(log.timestamp_str);
+                log_entry->set_timestamp(log.timestamp);
                 
                 // Convert log level
                 switch (log.level) {
