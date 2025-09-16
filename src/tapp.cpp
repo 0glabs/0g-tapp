@@ -454,6 +454,9 @@ void RunServer(const std::string& server_address) {
     std::cout << "  📦 StartApp  - Deploy applications with measurement" << std::endl;
     std::cout << "  🔐 GetQuote  - Generate TDX attestation quotes" << std::endl;
     std::cout << "  🔑 GetPubkey - Retrieve Ethereum keys and addresses" << std::endl;
+    std::cout << "  📋 GetServiceStatus - Get the status of the TAPP service" << std::endl;
+    std::cout << "  📋 GetServiceLogs - Get the logs of the TAPP service" << std::endl;
+    std::cout << "  📋 StreamServiceLogs - Stream the logs of the TAPP service" << std::endl;
     std::cout << std::endl;
     std::cout << "💡 Press Ctrl+C to stop the server..." << std::endl;
 
